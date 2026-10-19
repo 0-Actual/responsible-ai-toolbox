@@ -24,7 +24,8 @@ from erroranalysis._internal.constants import (DIFF, LEAF_INDEX, METHOD,
 from erroranalysis._internal.metrics import get_ordered_classes, metric_to_func
 from erroranalysis._internal.process_categoricals import process_categoricals
 from erroranalysis._internal.utils import (compute_regression_residuals,
-                                           is_spark)
+                                           is_spark,
+                                           normalize_regression_values)
 from raiutils.exceptions import UserConfigValidationException
 
 module_logger = logging.getLogger(__name__)
@@ -168,14 +169,14 @@ def compute_error_tree_on_dataset(
     dataset_sub_names = list(dataset_sub_names)
     classes = analyzer.classes
     if not is_spark(dataset):
-        if classes is None and analyzer.metric in (
+        if analyzer.metric in (
                 Metrics.FALSE_NEGATIVE_RATE, Metrics.FALSE_POSITIVE_RATE,
                 Metrics.SELECTION_RATE, Metrics.PRECISION_SCORE,
                 Metrics.RECALL_SCORE, Metrics.F1_SCORE):
             # Infer once from the full analyzer, before cohort or tree splits
             # can remove a class. Reuse the same vocabulary in every node.
             classes = get_ordered_classes(
-                None, analyzer.true_y, analyzer.pred_y)
+                classes, analyzer.true_y, analyzer.pred_y)
         booster, dataset_indexed_df, cat_info = get_surrogate_booster_local(
             dataset, analyzer, is_model_analyzer, indexes,
             dataset_sub_names, max_depth, num_leaves, min_child_samples)
@@ -348,7 +349,9 @@ def get_surrogate_booster_local(filtered_df, analyzer, is_model_analyzer,
             for image_idx in range(len(true_y))
         ]
     else:
-        diff = pred_y - true_y
+        pred_y = normalize_regression_values(pred_y)
+        true_y = normalize_regression_values(true_y)
+        diff = compute_regression_residuals(pred_y, true_y)
     if not isinstance(diff, np.ndarray):
         diff = np.array(diff)
 

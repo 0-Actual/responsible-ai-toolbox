@@ -13,7 +13,8 @@ from erroranalysis._internal.constants import (ARG, COLUMN, COMPOSITE_FILTERS,
                                                CohortFilterOps, ModelTask)
 from erroranalysis._internal.metrics import get_ordered_classes
 from erroranalysis._internal.utils import (compute_regression_residuals,
-                                           is_spark)
+                                           is_spark,
+                                           normalize_regression_values)
 
 MODEL = 'model'
 CLASSIFICATION_OUTCOME = 'Classification outcome'
@@ -278,11 +279,18 @@ class FilterDataWithCohortFilters:
 
         if isinstance(self.true_y, str):
             df.rename(columns={self.true_y: TRUE_Y})
+        elif (self.model_task == ModelTask.REGRESSION and
+              isinstance(self.true_y, (list, tuple))):
+            df[TRUE_Y] = normalize_regression_values(self.true_y)
         else:
             df[TRUE_Y] = self.true_y
 
         if self.model is None:
-            df[PRED_Y] = self.pred_y
+            if (self.model_task == ModelTask.REGRESSION and
+                    isinstance(self.pred_y, (list, tuple))):
+                df[PRED_Y] = normalize_regression_values(self.pred_y)
+            else:
+                df[PRED_Y] = self.pred_y
 
         if not is_spark(df):
             df[ROW_INDEX] = np.arange(0, len(self.true_y))

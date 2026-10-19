@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 import random
+from numbers import Integral
 
 import numpy as np
 
@@ -13,17 +14,44 @@ except ImportError:
     pass
 
 
+def is_integer_array(values):
+    """Identify integer arrays, including non-missing object integers."""
+    return (np.issubdtype(values.dtype, np.integer) or
+            (values.dtype == object and values.size > 0 and
+             all(isinstance(value, Integral) and
+                 not isinstance(value, (bool, np.bool_))
+                 for value in values.flat)))
+
+
+def normalize_regression_values(values):
+    """Keep integer containers exact before NumPy can infer float64.
+
+    Object integers are converted to Python ints so NumPy scalar arithmetic
+    cannot wrap. Missing, floating and nonnumeric inputs retain their types.
+    """
+    if isinstance(values, (list, tuple)):
+        candidate = np.asarray(values, dtype=object)
+        array = candidate if is_integer_array(
+            candidate) else np.asarray(values)
+    else:
+        array = np.asarray(values)
+    if array.dtype == object and is_integer_array(array):
+        array = np.array([int(value) for value in array.flat],
+                         dtype=object).reshape(array.shape)
+    return array
+
+
 def compute_regression_residuals(pred_y, true_y):
     """Subtract integer inputs without wraparound or rounding."""
-    predictions = np.asarray(pred_y)
-    labels = np.asarray(true_y)
-    if (np.issubdtype(predictions.dtype, np.integer) and
-            np.issubdtype(labels.dtype, np.integer)):
+    predictions = normalize_regression_values(pred_y)
+    labels = normalize_regression_values(true_y)
+    if is_integer_array(predictions) and is_integer_array(labels):
         # Inspect operands before promotion: mixing int64 and uint64 would
         # otherwise round to float64. Python integers also keep abs(INT64_MIN)
         # and differences spanning the full 64-bit range representable.
         size = max(predictions.dtype.itemsize, labels.dtype.itemsize)
-        signed_dtype = object if size == 8 else np.int64
+        signed_dtype = (object if size == 8 or predictions.dtype == object or
+                        labels.dtype == object else np.int64)
         predictions = predictions.astype(signed_dtype)
         labels = labels.astype(signed_dtype)
     return predictions - labels

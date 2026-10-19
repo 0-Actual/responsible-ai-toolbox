@@ -19,7 +19,8 @@ from erroranalysis._internal.constants import (DIFF, PRED_Y, ROW_INDEX, TRUE_Y,
 from erroranalysis._internal.metrics import (get_ordered_classes,
                                              is_multi_agg_metric,
                                              metric_to_func)
-from erroranalysis._internal.utils import compute_regression_residuals
+from erroranalysis._internal.utils import (compute_regression_residuals,
+                                           normalize_regression_values)
 from raiutils.exceptions import UserConfigValidationException
 
 module_logger = logging.getLogger(__name__)
@@ -121,13 +122,14 @@ def compute_matrix_on_dataset(analyzer, features, dataset,
     is_pandas = isinstance(analyzer.dataset, pd.DataFrame)
     metric = analyzer.metric
     classes = analyzer.classes
-    if classes is None and metric in (
+    if metric in (
             Metrics.FALSE_NEGATIVE_RATE, Metrics.FALSE_POSITIVE_RATE,
             Metrics.SELECTION_RATE, Metrics.PRECISION_SCORE,
             Metrics.RECALL_SCORE, Metrics.F1_SCORE):
         # A filtered cohort can omit a class present in the full analyzer.
         # Keep the positive label and binary vocabulary stable in every bin.
-        classes = get_ordered_classes(None, analyzer.true_y, analyzer.pred_y)
+        classes = get_ordered_classes(
+            classes, analyzer.true_y, analyzer.pred_y)
     if is_pandas:
         true_y = true_y.to_numpy()
     else:
@@ -153,6 +155,8 @@ def compute_matrix_on_dataset(analyzer, features, dataset,
             for image_idx in range(len(true_y))
         ]
     else:
+        pred_y = normalize_regression_values(pred_y)
+        true_y = normalize_regression_values(true_y)
         diff = compute_regression_residuals(pred_y, true_y)
     if not isinstance(diff, np.ndarray):
         diff = np.array(diff)
@@ -185,7 +189,10 @@ def compute_matrix_on_dataset(analyzer, features, dataset,
     else:
         df_err[TRUE_Y] = true_y
         df_err[PRED_Y] = pred_y
-    df_err = convert_dtypes(df_err)
+    if analyzer.model_task != ModelTask.REGRESSION:
+        df_err = convert_dtypes(df_err)
+    # Features were already converted above. Keep exact object integers in
+    # regression targets/residuals; inferring their dtype can round large ints.
     # construct matrix
     matrix = []
     if len(dataset_sub_names) == 2:
